@@ -49,7 +49,43 @@ class GuildTagDB:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guild_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
             conn.commit()
+
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM guild_settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO guild_settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, str(value)),
+            )
+            conn.commit()
+
+    def get_config(self) -> dict:
+        channel_id = self.get_setting("tag_channel_id")
+        trigger_mode = self.get_setting("trigger_mode", "all")
+        return {
+            "tag_channel_id": int(channel_id) if channel_id and channel_id.isdigit() else None,
+            "trigger_mode": trigger_mode,
+        }
 
     def get_user_tag(self, user_id: int) -> Optional[dict]:
         with self._get_connection() as conn:
