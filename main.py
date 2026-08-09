@@ -48,9 +48,11 @@ def get_log_relay_channel_id() -> int:
     return DEFAULT_LOG_RELAY_CHANNEL_ID
 
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+# 極簡化 Intents 設定，僅開啟必要項目以極致降低 CPU & RAM 資源消耗
+intents = discord.Intents.none()
+intents.guilds = True            # 伺服器與身份組基礎管理
+intents.guild_messages = True    # 接收文字頻道訊息事件
+intents.message_content = True  # 讀取訊息內容 (對話觸發模式 3 必需)
 
 
 class DiscordLogRelayHandler(logging.Handler):
