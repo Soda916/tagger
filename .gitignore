@@ -1,0 +1,16 @@
+# Environment variables
+.env
+
+# Databases & Data
+data/
+*.db
+
+# AI Collaboration Handoff
+AI_COLLAB_HANDOFF.md
+
+# Python
+__pycache__/
+*.py[cod]
+
+# OS generated
+.DS_Store
