@@ -126,16 +126,17 @@ class TaggerBot(commands.Bot):
                 if path.name.startswith("_") or path.name.startswith("."):
                     continue
                 if path.is_dir():
-                    if (path / "__init__.py").exists():
-                        rel_path = path.relative_to(cogs_dir.parent)
-                        modules.append(".".join(rel_path.parts))
-                    else:
-                        find_extensions(path)
+                    find_extensions(path)
                 elif path.is_file() and path.suffix == ".py":
                     if path.stem == "__init__":
                         continue
-                    rel_path = path.with_suffix("").relative_to(cogs_dir.parent)
-                    modules.append(".".join(rel_path.parts))
+                    try:
+                        content = path.read_text(encoding="utf-8")
+                        if "def setup(" in content:
+                            rel_path = path.with_suffix("").relative_to(cogs_dir.parent)
+                            modules.append(".".join(rel_path.parts))
+                    except Exception:
+                        pass
 
         if cogs_dir.exists():
             find_extensions(cogs_dir)
