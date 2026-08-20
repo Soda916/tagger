@@ -1,10 +1,12 @@
-"""Hot deploy 指令：在私訊執行 git pull 並重載 cogs。"""
+"""Hot deploy 指令：在私訊執行 git pull、語法檢查並深層重載 cogs 與相依模組。"""
 
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Iterable, List
 
@@ -29,9 +31,8 @@ class Deploy(commands.Cog):
     def _is_owner(self, user_id: int) -> bool:
         return self.owner_id > 0 and user_id == self.owner_id
 
-    async def _run_git(self, *args: str) -> tuple[int, str, str]:
+    async def _run_command(self, *args: str) -> tuple[int, str, str]:
         proc = await asyncio.create_subprocess_exec(
-            "git",
             *args,
             cwd=str(BASE_DIR),
             stdout=asyncio.subprocess.PIPE,
@@ -40,7 +41,24 @@ class Deploy(commands.Cog):
         stdout, stderr = await proc.communicate()
         return proc.returncode, stdout.decode().strip(), stderr.decode().strip()
 
+    async def _run_git(self, *args: str) -> tuple[int, str, str]:
+        return await self._run_command("git", *args)
+
+    async def _run_python_compileall(self) -> tuple[int, str, str]:
+        return await self._run_command(sys.executable, "-m", "compileall", "-q", ".")
+
+    async def _reset_to_commit(self, commit: str) -> tuple[int, str, str]:
+        return await self._run_git("reset", "--hard", commit)
+
     async def _reload_extensions(self, extensions: Iterable[str]) -> List[str]:
+        # 先刷新 sys.modules 中所有 cogs.* 相依模組，避免殘留舊版記憶體快取
+        for mod_name in list(sys.modules.keys()):
+            if mod_name.startswith("cogs.") and mod_name not in self.bot.extensions:
+                try:
+                    importlib.reload(sys.modules[mod_name])
+                except Exception:
+                    LOGGER.warning("無法重載相依模組 %s", mod_name, exc_info=True)
+
         reloaded: List[str] = []
         for ext in extensions:
             if ext in self.bot.extensions:
@@ -87,8 +105,23 @@ class Deploy(commands.Cog):
                 return
 
             new_code, new_rev, new_err = await self._run_git("rev-parse", "HEAD")
+            if new_code != 0:
+                await interaction.followup.send(f"❌ 更新後無法取得版本：```text\n{new_err or new_rev}\n```", ephemeral=True)
+                return
 
-            # 重新載入所有 cogs
+            # 編譯語法預先檢查
+            compile_code, compile_out, compile_err = await self._run_python_compileall()
+            if compile_code != 0:
+                await self._reset_to_commit(old_rev)
+                compile_output = compile_err or compile_out
+                await interaction.followup.send(
+                    "❌ 這次版本在語法檢查時失敗，已自動回滾：\n"
+                    f"```text\n{compile_output[:1500]}\n```",
+                    ephemeral=True,
+                )
+                return
+
+            # 遞迴尋找所有 cogs 進入點
             modules = []
 
             def find_extensions(directory: Path):
@@ -109,8 +142,16 @@ class Deploy(commands.Cog):
                             pass
 
             find_extensions(COGS_DIR)
-            reloaded = await self._reload_extensions(modules)
-            await self.bot.tree.sync()
+            try:
+                reloaded = await self._reload_extensions(modules)
+                await self.bot.tree.sync()
+            except Exception as exc:
+                LOGGER.exception("熱重載失敗")
+                await interaction.followup.send(
+                    f"❌ 模組熱重載失敗，請檢查系統 Log：`{exc}`",
+                    ephemeral=True,
+                )
+                return
 
             msg = (
                 f"✅ **部署成功！**\n"
