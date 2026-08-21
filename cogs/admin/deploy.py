@@ -68,9 +68,21 @@ class Deploy(commands.Cog):
             reloaded.append(ext)
         return reloaded
 
+    def _format_voice_summary(self) -> str:
+        if not self.bot.voice_clients:
+            return "- **連線中語音頻道**: 無"
+        lines = ["- **連線中語音頻道**:"]
+        for vc in self.bot.voice_clients:
+            guild_name = vc.guild.name if vc.guild else "未知伺服器"
+            channel_name = vc.channel.name if vc.channel else "未知頻道"
+            channel_id = vc.channel.id if vc.channel else 0
+            lines.append(f"  - **{guild_name}**：`#{channel_name}` (`{channel_id}`)")
+        return "\n".join(lines)
+
     @app_commands.command(name="hotdeploy", description="git pull 並重新載入 cogs (限私訊與 Bot Owner)")
     @app_commands.rename(hash_value="雜湊")
     @app_commands.describe(hash_value="部署密碼雜湊")
+    @app_commands.allowed_contexts(guilds=False, dms=True, private_channels=True)
     async def deploy(self, interaction: discord.Interaction, hash_value: str) -> None:
         if interaction.user is None or not self._is_owner(interaction.user.id):
             await interaction.response.send_message("只有 bot owner 可以使用這個指令。", ephemeral=True)
@@ -157,6 +169,7 @@ class Deploy(commands.Cog):
                 f"✅ **部署成功！**\n"
                 f"- **舊 Commit**: `{old_rev[:7]}`\n"
                 f"- **新 Commit**: `{new_rev[:7]}`\n"
+                f"{self._format_voice_summary()}\n"
                 f"- **已重新載入模組**: {', '.join(reloaded)}"
             )
             await interaction.followup.send(msg, ephemeral=True)
